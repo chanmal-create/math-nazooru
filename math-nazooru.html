@@ -254,7 +254,6 @@ function addEntry(latex){
 function clearEntryPath(id){
   const entry=mathEntries.find(e=>e.id===id);
   if(!entry) return;
-  clearEntryTokens(entry);
   entry.path=[];
   renderMathList();
   redrawAllPreviews();
