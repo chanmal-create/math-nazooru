@@ -90,7 +90,7 @@ header p { margin:3px 0 0;font-size:11px;color:rgba(237,231,217,0.45); }
 <body>
 <div class="app">
   <header>
-    <h1>数式NAぞ</h1>
+    <h1>数式NAぞる</h1>
     <p>数式を入力して、ステージ上をなぞると数式が線に乗ります</p>
   </header>
   <div class="body">
@@ -331,12 +331,23 @@ document.querySelectorAll(".preset-btn").forEach(btn=>{
 // ========== トークン配置 ==========
 function tokenizeLatex(latex){
   const tokens=[];
-  let current="",depth=0;
-  for(const c of latex.trim()){
-    if(c==="{"){depth++;current+=c;}
-    else if(c==="}"){depth--;current+=c;}
-    else if(c===" "&&depth===0){if(current.trim())tokens.push(current.trim());current="";}
-    else{current+=c;}
+  let current="",depth=0,leftDepth=0;
+  const s=latex.trim();
+  let i=0;
+  while(i<s.length){
+    const c=s[i];
+    if(c==="{"){depth++;current+=c;i++;continue;}
+    if(c==="}"){depth--;current+=c;i++;continue;}
+    if(s.startsWith("\\left",i)){leftDepth++;current+="\\left";i+=5;continue;}
+    if(s.startsWith("\\right",i)){leftDepth=Math.max(0,leftDepth-1);current+="\\right";i+=6;continue;}
+    if(c===" "&&depth===0&&leftDepth===0){
+      if(current.trim())tokens.push(current.trim());
+      current="";
+      i++;
+      continue;
+    }
+    current+=c;
+    i++;
   }
   if(current.trim())tokens.push(current.trim());
   return tokens.filter(t=>t.length>0);
@@ -361,7 +372,9 @@ function pointAtDistance(pts,dist){
     rem-=seg;
   }
   const last=pts[pts.length-1],prev=pts[pts.length-2];
-  return{x:last.x,y:last.y,angle:Math.atan2(last.y-prev.y,last.x-prev.x)*180/Math.PI};
+  const segLen=Math.hypot(last.x-prev.x,last.y-prev.y)||1;
+  const ux=(last.x-prev.x)/segLen,uy=(last.y-prev.y)/segLen;
+  return{x:last.x+ux*rem,y:last.y+uy*rem,angle:Math.atan2(last.y-prev.y,last.x-prev.x)*180/Math.PI};
 }
 
 function simplifyPath(pts){
@@ -392,20 +405,32 @@ function placeEntry(entry){
   const totalLen=pathTotalLength(entry.path);
   if(totalLen<4)return;
   const fontSize=parseFloat(sizeSlider.value);
-  const step=totalLen/tokens.length;
   const fg=PALETTES[currentBg].fg;
 
-  tokens.forEach((tok,i)=>{
-    const dist=step*(i+0.5);
-    const{x,y,angle}=pointAtDistance(entry.path,dist);
+  // 1st pass: render each token (hidden) to measure its actual width at this font size
+  const els=tokens.map(tok=>{
     const el=document.createElement("div");
     el.className="mtoken";
-    el.style.left=x+"px"; el.style.top=y+"px";
     el.style.fontSize=fontSize+"rem"; el.style.color=fg;
-    el.style.transform=`translate(-50%,-50%) rotate(${angle}deg)`;
+    el.style.visibility="hidden";
     try{ el.innerHTML=katex.renderToString(tok,{displayMode:false,throwOnError:false,output:"html"}); }
     catch(e){ el.textContent=tok; }
     stage.appendChild(el);
+    return el;
+  });
+  const widths=els.map(el=>Math.max(el.offsetWidth,1));
+
+  // 2nd pass: position each token using its real cumulative width as distance along the path
+  // (not stretched to fill the whole path) so tokens don't get squeezed into each other when enlarged
+  let cum=0;
+  els.forEach((el,i)=>{
+    const w=widths[i];
+    const dist=cum+w/2;
+    cum+=w;
+    const{x,y,angle}=pointAtDistance(entry.path,dist);
+    el.style.left=x+"px"; el.style.top=y+"px";
+    el.style.transform=`translate(-50%,-50%) rotate(${angle}deg)`;
+    el.style.visibility="";
     entry.tokenEls.push(el);
   });
   emptyHint.style.display="none";
